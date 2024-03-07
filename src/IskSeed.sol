@@ -4,12 +4,13 @@ pragma solidity ^0.8.20;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-contract IsekaiSeed is Ownable, Pausable, ERC20, ERC20Burnable {
+contract IskSeed is Ownable, Pausable, ERC20, ERC20Burnable {
     using ECDSA for bytes32;
 
     struct SeedType {
@@ -26,15 +27,15 @@ contract IsekaiSeed is Ownable, Pausable, ERC20, ERC20Burnable {
     mapping(uint256 => ProductType) public productTypes;
     mapping(bytes32 => bool) private isUsed;
 
-    address public paymentToken;
+    IERC20 public iskToken;
     address private signerAddress;
 
     constructor(
-        address initialOwner,
-        address _paymentToken,
+        address _initialOwner,
+        address _iskToken,
         address _signerAddress
-    ) Ownable(initialOwner) ERC20("IsekaiFarmSeed", "ISKS") {
-        paymentToken = _paymentToken;
+    ) Ownable(_initialOwner) ERC20("IsekaiFarmSeed", "ISKS") {
+        iskToken = IERC20(_iskToken);
         signerAddress = _signerAddress;
 
         // 6 types of seed and cost
@@ -65,19 +66,19 @@ contract IsekaiSeed is Ownable, Pausable, ERC20, ERC20Burnable {
         uint256 amount
     );
 
-    function mint(uint256 _seedType, uint256 _amount) external payable {
+    function mint(uint256 _seedType, uint256 _amount) public {
         require(seedTypes[_seedType].exists, "Seed type does not exist");
         uint256 totalMintCost = seedTypes[_seedType].cost * _amount;
-        require(msg.value >= totalMintCost, "Insufficient ETH sent");
+        require(
+            iskToken.allowance(msg.sender, address(this)) >= _amount,
+            "Insufficient ISK allowance"
+        );
+
+        iskToken.transferFrom(msg.sender, address(this), totalMintCost);
 
         _mint(msg.sender, _amount);
 
         emit TokensMinted(msg.sender, _amount, _seedType);
-
-        // Refund excess ETH
-        if (msg.value > totalMintCost) {
-            payable(msg.sender).transfer(msg.value - totalMintCost);
-        }
     }
 
     function sellProduct(
@@ -105,7 +106,7 @@ contract IsekaiSeed is Ownable, Pausable, ERC20, ERC20Burnable {
         isUsed[message] = true;
 
         uint256 totalPrice = productTypes[_productType].price * _amount;
-        ERC20(paymentToken).transfer(msg.sender, totalPrice);
+        iskToken.transfer(msg.sender, totalPrice);
 
         emit ProductSold(msg.sender, _productType, _amount);
     }
@@ -135,8 +136,8 @@ contract IsekaiSeed is Ownable, Pausable, ERC20, ERC20Burnable {
         emit SeedTypeUpdated(_seedType, newMintCost);
     }
 
-    function setPaymentToken(address _paymentToken) external onlyOwner {
-        paymentToken = _paymentToken;
+    function setiskToken(address _iskToken) external onlyOwner {
+        iskToken = ERC20(_iskToken);
     }
 
     function getMessage(
